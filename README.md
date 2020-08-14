@@ -82,7 +82,7 @@ jdk 1.4 版本之前是叫OIO(Old IO)，阻塞。后面增加了NIO(New IO，No-
 
 ## Buffer，Channel，Selector 
 
-NIO的3个核心组件。
+NIO的3个核心组件。一句话来说就是Selector告诉你放到Buffer里面需要通过Channel发出去的数据怎么样了，有没有通过Channel收到新数据。
 
 ### Buffer
 
@@ -171,7 +171,7 @@ compact变成写模式。忽略掉已经读过的部分。
 
 通道是一个底层文件的描述，可以表示一个硬件设备，文件，网络连接等。
 
-重要的4个通道有FileChannel，SocketChannel，ServerSocketChannel，DatagramChannel。
+重要的4个通道有FileChannel，ServerSocketChannel，SocketChannel，DatagramChannel。
 
 + FileChannel
 
@@ -216,16 +216,18 @@ compact变成写模式。忽略掉已经读过的部分。
   
   ```
 
++ DatagramChannel
+
+  Udp连接的数据读写。
+
   
+
++ ServerSocketChannel
+
+  服务器套接字，监听请求，accept后获取下面的SocketChannel，然后通过SocketChannel进行通信
 
 + SocketChannel
 
   Tcp连接的数据读写。
 
-+ ServerSocketChannel
-
-  服务器套接字，监听请求，然后获取下面的SocketChannel
-
-+ DatagramChannel
-
-  Udp连接的数据读写
+  
