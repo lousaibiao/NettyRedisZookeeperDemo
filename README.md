@@ -309,7 +309,18 @@ StringBuilder:楼
 
 ```
 
+## 小结
 
+Buffer用来读写数据，通过flip和clear（compact）做状态的转换。
 
+Channel为读写数据的通道，把buffer中的数据通过read/write方法处理掉。实现了`SelectedableChannel`的Channel可以被selector监控，从而高效的获取对应的事件。
 
+Selector是重点，相较于OIO，内部使用epoll的方式实现多路复用。
+
+1. `open`实例化出一个选择器。
+2. `open`出一个ServerSocketChannel。
+3. 配置非阻塞（NIO）。
+4. 通过`SelectionKey`参数绑定两者。
+5. select()方法为阻塞调用。
+6. 遍历选择器选中的selectedKeys，判断类型，完成对应的操作。
 
