@@ -32,6 +32,7 @@ public class NioDiscardServerApplication {
                 if (selectionKey.isAcceptable()) {
                     System.out.println("新连接进来");
                     final SocketChannel socketChannel = serverSocketChannel.accept();
+                    System.out.println("远程地址为" + socketChannel.getRemoteAddress());
                     System.out.println("accept得到连接，配置非阻塞");
                     socketChannel.configureBlocking(false);
                     System.out.println("给socketChannel注册数据可读");
