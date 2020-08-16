@@ -220,7 +220,40 @@ compact变成写模式。忽略掉已经读过的部分。
 
   Udp连接的数据读写。
 
+  ```java
+  public class UdpClient {
+      public static void main(String[] args) {
+          String ip = "127.0.0.1";
+          int port = 8234;
+          try (final DatagramChannel channel = DatagramChannel.open()) {
+              channel.configureBlocking(false);
+              final ByteBuffer byteBuffer = ByteBuffer.allocate(1024);
+              final Scanner scanner = new Scanner(System.in);
+              while (scanner.hasNext()) {
+                  final String input = scanner.next();
+                  if (input.equals("exit")) {
+                      System.out.println("结束");
+                      return;
+                  }
+                  final byte[] bytes = input.getBytes(StandardCharsets.UTF_8);
+                  System.out.println("输入" + bytes.length + "字节的数据");
+                  byteBuffer.put(bytes);
+                  byteBuffer.flip();
+                  System.out.println("转为读模式,开始发送");
+                  final int sendBytes = channel.send(byteBuffer, new InetSocketAddress(ip, port));
+                  byteBuffer.clear();
+                  System.out.println("发送" + sendBytes + "字节的数据");
+              }
+              channel.close();
   
+          } catch (IOException e) {
+              e.printStackTrace();
+          }
+      }
+  }
+  ```
+
+  把byteBuffer内的内容通过DatagramChannel.open出来的channel用send方法发送到指定的地址。接收部分的demo以及Tcp部分的知识点在选择器部分整理。
 
 + ServerSocketChannel
 
@@ -230,4 +263,53 @@ compact变成写模式。忽略掉已经读过的部分。
 
   Tcp连接的数据读写。
 
-  
+### Selector
+
+这个最**重要**。
+
+#### DiscardClient & DiscardServer
+
+`com.lou.demo4.NioDiscardServerApplication`
+
+```bash
+开启一个tcp服务器
+配置非阻塞
+绑定端口ip
+注册accept事件
+select方法阻塞调用
+有事件进来后遍历事件
+第1个事件
+获取事件
+判断事件类型
+新连接进来
+accept得到连接，配置非阻塞
+给socketChannel注册数据可读
+移出一次select到的所有事件避免重复读取
+有事件进来后遍历事件
+第1个事件
+获取事件
+判断事件类型
+可读事件
+socketChannel写入了3字节的之后把byteBuffer转为读取
+解码byteBuffer内的数据
+读取到3个字符,汉字编码方式要匹配
+StringBuilder:楼
+清理byteBuffer以便重新写入
+读取完毕后关闭
+读取到0字节，关闭
+移出一次select到的所有事件避免重复读取
+
+```
+
+`com.lou.demo4.NioDiscardClientApplication`
+
+```bash
+连接成功
+写入socket【3】字节数据
+
+```
+
+
+
+
+
