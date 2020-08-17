@@ -4,6 +4,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
 import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
 import java.util.Iterator;
 
 public class NioDiscardServerApplication {
@@ -30,7 +31,7 @@ public class NioDiscardServerApplication {
                 final SelectionKey selectionKey = selectedKeys.next();
                 System.out.println("判断事件类型");
                 if (selectionKey.isAcceptable()) {
-                    System.out.println("新连接进来");
+                    System.out.println(LocalDateTime.now() + "新连接进来");
                     final SocketChannel socketChannel = serverSocketChannel.accept();
                     System.out.println("远程地址为" + socketChannel.getRemoteAddress());
                     System.out.println("accept得到连接，配置非阻塞");
