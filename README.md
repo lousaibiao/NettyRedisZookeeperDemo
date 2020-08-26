@@ -320,7 +320,206 @@ Selector是重点，相较于OIO，内部使用epoll的方式实现多路复用�
 1. `open`实例化出一个选择器。
 2. `open`出一个ServerSocketChannel。
 3. 配置非阻塞（NIO）。
-4. 通过`SelectionKey`参数绑定两者。
+4. 通过`SelectionKey`参数绑定两者。并且返回一个SelectionKey对象。
 5. select()方法为阻塞调用。
 6. 遍历选择器选中的selectedKeys，判断类型，完成对应的操作。
 
+# 第四章
+
+## Reactor反应器模型
+
+nginx，redis，netty都是基于这个模型。
+
+由**两**部分构成
+
+1. 反应器
+2. Handlers，不同的处理者，用来处理不同的事情。
+
+为什么要用这个模型。
+
++ OIO，早期都是OIO的开发方式。
+  + 单线程：是阻塞的，一般while循环里面，先accept再handle，handle没有结束，其他accept是进不来的。
+  + 多线程：一个connection就开一个thread，连接数多了之后thread会比较多，导致系统开销比较严重。早期的tomcat是用这种方式。所以，其实如果连接不是太多，`问题也不大的`。
+    + 为了解决线程过多的问题，可以让一个线程处理多个连接。但是，OIO本身是阻塞的，在处理一个的时候其他是无法处理的。
++ NIO，NIO出来之后可以用他来实现，有了选择器等，效率上来了，不过还是while循环selector的就绪事件，所以代码结构不好。
+
+这个模型相当于要解决几个问题。
+
+1. 线程不能太多。
+2. 要尽可能的高效。
+3. 代码要好看
+
+### 单线程版本
+
+#### 具体代码
+
+首先需要一个反应器。`EchoServerReactor`。
+
+```java
+public class EchoServerReactor implements Runnable {//这个Runnable是有用的，因为要开一个线程来处理。
+    Selector selector;
+    ServerSocketChannel serverSocketChannel;
+
+    /**
+     * 初始化配置相关
+     * @throws Exception
+     */
+    public EchoServerReactor() throws Exception {
+        //实例化selector和serverSocketChannel
+        selector = Selector.open();//全局都用这个,
+        serverSocketChannel = ServerSocketChannel.open();
+        //非阻塞
+        serverSocketChannel.configureBlocking(false);
+        serverSocketChannel.bind(new InetSocketAddress("127.0.0.1", 8234), 1000);
+        //把serverSocketChannel注册到selector
+        final SelectionKey selectionKey = serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
+        //附加上AcceptHandler，以便accept的时候能使用
+        selectionKey.attach(new AcceptHandler(serverSocketChannel, selector));
+
+    }
+
+    @Override
+    public void run() {//服务启动进的这个方法。
+        while (!Thread.interrupted()) {
+            try {
+                selector.select();//阻塞选择，select注册过accept，所以会进去
+                final Set<SelectionKey> selectionKeys = selector.selectedKeys();
+                final Iterator<SelectionKey> it = selectionKeys.iterator();
+                while (it.hasNext()) {
+                    final SelectionKey selectionKey = it.next();
+                    //找到一个,这个Dispatch可能是echo,也可能是accept，因为在echoHandler里面这个select注册了Read事件，然后wakeup了起来。就触发了上面的selector.select()方法。
+                    dispatch(selectionKey);
+                }
+                selectionKeys.clear();//选完一遍要clear掉，避免重复
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+    }
+
+    void dispatch(SelectionKey selectionKey) {
+        //拿里面的Handler
+        final Runnable handler = (Runnable) selectionKey.attachment();
+        System.out.println("拿到runnable为" + handler.getClass().getName() + "|");
+        if (handler != null) {
+            //这个run方法只是一个方法，和Thread的run没有关系。
+            handler.run();//用了多态的性质，attach进来的对象都实现了Runnable接口，所以可以直接调用run方法。这个和thread的多线程没有关系，单纯调用run方法还是阻塞的。
+            //这里也能用其他的接口来
+
+            //这个不行，因为new EchoHandler会调用wakeUp方法，立即激活了阻塞的select方法，导致accept到N个null的连接
+//            new Thread(handler).start();
+        }
+    }
+    public static void main(String[] args) throws Exception {
+        //开线程做启动server
+        new Thread(new EchoServerReactor()).start();
+    }
+}
+```
+
+两个Handler。
+
++ AcceptHandler，用来接收连接
+
+  ```java
+  public class AcceptHandler implements Runnable {//这个Runnable和EchoHandler实现的Runnable没有必要，可以用其他接口代替，都实现只是为了调用run方法。
+  
+      private final ServerSocketChannel serverSocketChannel;
+      private final Selector selector;
+  
+      public AcceptHandler(ServerSocketChannel serverSocketChannel, Selector selector) {
+          this.serverSocketChannel = serverSocketChannel;
+          this.selector = selector;
+      }
+  
+      @Override
+      public void run() {
+          System.out.println("进入AcceptHandler.run");
+          try {
+              final SocketChannel socketChannel = serverSocketChannel.accept();
+              if (socketChannel != null) {//因为配置的是非阻塞的socket，所以可能会得到null的连接
+                  new EchoHandler(socketChannel, selector);//实例化一个EchoHandler，表面上是实例化，实际上有wakeup的方法调用，会再触发一次。
+              } else {
+                  System.out.println("accept 得到null的连接");
+              }
+          } catch (IOException e) {
+              e.printStackTrace();
+          } catch (Exception e) {
+              e.printStackTrace();
+          }
+      }
+  }
+  ```
+
++ EchoHandler，用来回写消息
+
+  ```java
+  public class EchoHandler implements Runnable {
+      final SocketChannel socketChannel;
+      final SelectionKey selectionKey;
+      final ByteBuffer byteBuffer = ByteBuffer.allocate(1024);
+      static final int Receiving = 0, Sending = 1;
+      int state = Receiving;
+  
+      public EchoHandler(SocketChannel socketChannel, Selector selector) throws Exception {
+          this.socketChannel = socketChannel;
+          //配置非阻塞。
+          socketChannel.configureBlocking(false);
+          //把连接进来的socket也注册进去。selector一直是同一个。
+          selectionKey = socketChannel.register(selector, SelectionKey.OP_READ);
+          selectionKey.attach(this);// 这里也会把需要的handler赋值给selectionKey。
+          selectionKey.interestOps(SelectionKey.OP_READ);//然后告诉selectionKey自己还对read完成事件感兴趣。
+          //selector.wakeup();//这里会触发第一个select方法返回，也就是到了EchoServerReactor中的select方法，会得到0个事件。
+      }
+  
+      @Override
+      public void run() {//注册了上面的read完成，然后附加了自己，等外面select到，就会执行这个Runnable.run()方法。
+          System.out.println("进入EchoHandler.run");
+  
+          try {
+              if (state == Receiving) {
+                  int length = 0;
+                  while ((length = socketChannel.read(byteBuffer)) > 0) {//把收到的东西放到byteBuffer里面
+                      System.out.println("收到" + new String(byteBuffer.array(), 0, length));
+                  }
+                  if (length < 0) {
+                      System.out.println("收到-1字节数据，断开");
+                      socketChannel.close();
+                      return;
+                  }
+                  byteBuffer.flip();//放完之后把byteBuffer变成读模式，以便后面的去读取
+                  //已经写完了，这时候需要让SelectionKey去注册一下，表示自己对write感兴趣，也就是说可以写就绪
+                  selectionKey.interestOps(SelectionKey.OP_WRITE);//interest 感兴趣
+                  state = Sending;//状态转为send，发送状态。
+              } else if (state == Sending) {//
+                  //开始读取byteBuffer里面的东西，然后回写到socket中去
+                  socketChannel.write(byteBuffer);
+                  //写完socket也就是读完byteBuffer里面的内容后，转为写模式，以便后面能继续写进去
+                  byteBuffer.clear();
+                  //现在又表示自己对read就绪比较感兴趣
+                  selectionKey.interestOps(SelectionKey.OP_READ);
+                  state = Receiving;
+              }
+  //            selectionKey.cancel();//如果写上这个就不能在Receive之后Send回去了。
+          } catch (IOException e) {
+              e.printStackTrace();
+          }
+      }
+  }
+  ```
+
+#### 重点小结
+
+流程：
+
+1. main方法开线程启动server（实现了Runnable接口），
+2. server的构造函数里面做配置，比如绑定的端口，需要注册的Accept选择键，Accept之后的Handler等。
+3. server实现了Runnable接口，在run方法里面while(...)的方式去执行select（整个程序只有一个select），选完之后做Dispatch（派发）
+4. 第一次选中的只有Accept就绪事件。AcceptHandler来处理。这个Handler会调用serverSocketChannel的accept方法，得到一个socketChannel，然后会用这个socketChannel去new一个EchoHandler。（相当于连接管理）
+5. 实例化EchoHandler的重点是1.实现Runnable接口。2.注册read就绪，也就是client有数据发过来。3.把自己attach进`selectionKey`，以便在select里面做Dispatch的调用。
+6. 需要实现的业务放到run方法里面。
+
+缺点：
+
+1. 单线程。main方法里面只启动了一个Thread，虽然几个Handler都实现了Runnable接口，但本质上还只是run方法的阻塞调用。handler的方法阻塞会导致系统卡住。
+2. 没有利用好多核cpu的特点。
