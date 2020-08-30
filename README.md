@@ -523,3 +523,7 @@ public class EchoServerReactor implements Runnable {//这个Runnable是有用的
 
 1. 单线程。main方法里面只启动了一个Thread，虽然几个Handler都实现了Runnable接口，但本质上还只是run方法的阻塞调用。handler的方法阻塞会导致系统卡住。
 2. 没有利用好多核cpu的特点。
+
+结论：
+
+基本不用。需要用多线程版本。
